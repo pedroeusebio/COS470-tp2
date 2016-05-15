@@ -33,10 +33,14 @@ int main (int argc, char const *argv[]) {
 
   //generating array of random values
 
-  long n = atoi(argv[1]);
+  long long n = atoi(argv[1]);
   cout << n << endl;
   char *vector = randomVector(n);
 
+
+  for(long long i = 0; i < n ; i++) {
+    cout << i << ": " << (int)vector[i]<< endl;
+  }
   //Creating threads
   const int NUM_THREADS = atoi(argv[2]);
   thread t[NUM_THREADS];
@@ -53,6 +57,7 @@ int main (int argc, char const *argv[]) {
     t[i].join();
   }
 
+  delete vector ;
 
   return 0;
 }
