@@ -7,7 +7,8 @@
 #define LOWER 1
 #define UPPER 10000000
 
-#include <iostream>      
+#include <iostream>
+#include <sstream>      
 #include <thread>        
 #include <mutex>         
 #include <condition_variable>
@@ -155,14 +156,33 @@ bool removeProduct (int &cid, int &product, int &buffersize, int *buffer, int &l
 
 //inline void processProduct(int &product) {}
  
-int main (){
+int main (int argc, char const *argv[]){
+
+  if (argc < 4)
+  {
+    std::cout<<"Usage is: "<<argv[0];
+    std::cout<<" <buffer size> <# producers> <# consumers>";
+    std::cout<<std::endl;
+    return 0;
+  }
+  std::stringstream tempss;
 
   //Size of product buffer
-  int buffersize = 10;
+  int buffersize = 1;
+  tempss<<argv[1];
+  tempss>>buffersize;
   //Number of producers
-  int prodnum = 2;
+  int prodnum = 1;
+  tempss.str("");
+  tempss.clear();
+  tempss<<argv[2];
+  tempss>>prodnum;
   //Number of consumers
-  int consnum = 2;
+  int consnum = 1;
+  tempss.str("");
+  tempss.clear();
+  tempss<<argv[3];
+  tempss>>consnum;
   //Number of products to be consumed by each consumer
   int limit = 100000;
 
