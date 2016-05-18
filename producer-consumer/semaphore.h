@@ -46,7 +46,7 @@ public:
 	{
 		//std::unique_lock<std::mutex> ulock(m);
 		shutdown.store(true);
-		//cv.notify_all();
+		cv.notify_all();
 	}
 
 	bool isShutdown ()

@@ -33,64 +33,45 @@ std::atomic_uint a_consumerCounter;
 int productsConsumed = 0;
 const int limit = 10000;    //Number of products to be consumed by all consumers together
 
-inline bool addProduct (int &pid, int product, int &buffersize, int *buffer);
+inline void addProduct (int &pid, int product, int &buffersize, int *buffer);
 
-void producer(int pid, int buffersize, int *buffer) {
+void producer(int pid, int buffersize, int *buffer, int amount) {
   
-  std::random_device r;
-  std::seed_seq seed{r(),r(),r(),r(),r(),r(),r(),r()};
-  std::mt19937 gen(seed);
-  std::uniform_int_distribution<int> dis(LOWER, UPPER);
-  bool produce = true;
+  //std::random_device r;
+  //std::seed_seq seed{r(),r(),r(),r(),r(),r(),r(),r()};
+  //std::mt19937 gen(seed);
+  //std::uniform_int_distribution<int> dis(LOWER, UPPER);
 
   #ifdef DEBUG
     {
       std::unique_lock<std::mutex> ulock(c_mtx);
       std::cout<<"\nProducer "<<pid<<" has awaken!"<<"\n";
+      std::cout<<"Will produce "<<amount<<" items"<<"\n";
     }
   #endif
 
-  int product = dis(gen);
+  int product = 0;//dis(gen);
 
-  while (produce) {
-    product = dis(gen);
-    if(empty.waitOrShutdown())
-    {
-      #ifdef DEBUG
-        {
-          std::unique_lock<std::mutex> ulock(c_mtx);
-          std::cout<<"\nNo need for producers. Producer ";
-          std::cout<<pid<<" exiting..."<<"\n";
-        }
-      #endif
-      return;
-    }
-    produce = addProduct(pid, product, buffersize, buffer);
+  for(int i = 0; i < amount; i++)
+  {
+    product = 13;//dis(gen);
+    empty.wait();
+    addProduct(pid, product, buffersize, buffer);
     full.signal();
   }
 
+  #ifdef DEBUG
+    {
+      std::unique_lock<std::mutex> ulock(c_mtx);
+      std::cout<<"\nNo need for producers. Producer ";
+      std::cout<<pid<<" exiting..."<<"\n";
+    }
+  #endif
+
 }
 
-inline bool addProduct (int &pid, int product, int &buffersize, int *buffer) {
+inline void addProduct (int &pid, int product, int &buffersize, int *buffer) {
   std::unique_lock<std::mutex> ulock(mtx);
-  
-  if (productsConsumed >= limit)
-  {
-    if (empty.isShutdown() || full.isShutdown())
-    {
-      return false;
-    }
-    #ifdef DEBUG
-      {
-        std::unique_lock<std::mutex> ulock(c_mtx);
-        std::cout<<"Producer"<<pid<<" is shutting down!";
-        std::cout<<"\n";
-      }
-    #endif
-    empty.doShutdown();
-    full.doShutdown();
-    return false;
-  }
 
   for (int i = 0; i < buffersize; ++i)
   {
@@ -105,88 +86,56 @@ inline bool addProduct (int &pid, int product, int &buffersize, int *buffer) {
         }
       #endif
       buffer[i] = product;
-      return true;
+      return;
     }
   }
 }
 
-inline bool removeProduct (int &cid, int &product, int &buffersize, int *buffer);
+inline void removeProduct (int &cid, int &product, int &buffersize, int *buffer);
 
-void consumer(int cid, int buffersize, int *buffer) {
+void consumer(int cid, int buffersize, int *buffer, int amount) {
   #ifdef DEBUG
     {
       std::unique_lock<std::mutex> ulock(c_mtx);
       std::cout<<"\nConsumer "<<cid<<" has awaken!"<<"\n";
+      std::cout<<"Will consume "<<amount<<" items"<<"\n";
     }
   #endif
   int product = 0;
-  bool hasRemoved = true;
   
-  while(hasRemoved)
+  for(int i = 0; i < amount; i++)
   {
-    if(full.waitOrShutdown())
-    {
-      #ifdef DEBUG
-        {
-          std::unique_lock<std::mutex> ulock(c_mtx);
-          std::cout<<"Consumer "<<cid<<" finished its job of consuming his share of ";
-          std::cout<<limit<<" products. Exiting..."<<"\n";
-        }
-      #endif
-      return;
-    }
-    hasRemoved = removeProduct(cid, product, buffersize, buffer);
+    full.wait();
+    removeProduct(cid, product, buffersize, buffer);
     empty.signal();
 
-    if (hasRemoved)
-    {
-      #ifdef PRIME
-        if (isPrime(product))
-        {
-          std::unique_lock<std::mutex> ulock(p_mtx);
-          std::cout<<product<<" is prime"<<"\n";//processProduct(product);
-        }
-        else
-        {
-          std::unique_lock<std::mutex> ulock(p_mtx);
-          std::cout<<product<<" is NOT prime"<<"\n";
-        }
-      #else
-        isPrime(product);
-      #endif
-    }
+    #ifdef PRIME
+      if (isPrime(product))
+      {
+        std::unique_lock<std::mutex> ulock(p_mtx);
+        std::cout<<product<<" is prime"<<"\n";//processProduct(product);
+      }
+      else
+      {
+        std::unique_lock<std::mutex> ulock(p_mtx);
+        std::cout<<product<<" is NOT prime"<<"\n";
+      }
+    #else
+      isPrime(product);
+    #endif
 
   }
 }
 
-inline bool removeProduct (int &cid, int &product, int &buffersize, int *buffer) {
+inline void removeProduct (int &cid, int &product, int &buffersize, int *buffer) {
   std::unique_lock<std::mutex> ulock(mtx);
-  if (productsConsumed >= limit)
-  {
-    if (empty.isShutdown() || full.isShutdown())
-    {
-      return false;
-    }
-    #ifdef DEBUG
-      {
-        std::unique_lock<std::mutex> ulock(c_mtx);
-        std::cout<<"Consumer"<<cid<<" is shutting down!";
-        std::cout<<"\n";
-      }
-    #endif
-    empty.doShutdown();
-    full.doShutdown();
-    return false;
-  }
-
   for (int i = 0; i < buffersize; ++i)
   {
     if (buffer[i] != 0)
     {
       product = buffer[i];
       buffer[i] = 0;
-      productsConsumed++;
-      return true;
+      return;
     }
   }
   #ifdef DEBUG
@@ -195,7 +144,7 @@ inline bool removeProduct (int &cid, int &product, int &buffersize, int *buffer)
       std::cout<<"Did not find any product!"<<"\n";
     }
   #endif
-  return false;
+  return;
 }
  
 int main (int argc, char const *argv[]){
@@ -233,6 +182,14 @@ int main (int argc, char const *argv[]){
   //Array with consumer threads
   std::thread *consumers = new std::thread[consnum];
 
+  //Amount of values each producer has to produce
+  int prodShare = limit/prodnum;
+  int prodLast = limit - prodShare*(prodnum-1);
+
+  //Amount of values to process on each consumer
+  int consShare = limit/consnum;
+  int consLast = limit - consShare*(consnum-1);
+
   //Mark all buffer positions as empty;
   empty.setCounter(buffersize);
   a_consumerCounter.exchange(consnum);
@@ -243,10 +200,15 @@ int main (int argc, char const *argv[]){
   }
 
   //create prodnum producers  and consnum consumers
-  for (int p = 0; p < prodnum; p++)
-    producers[p] = std::thread(producer, p, buffersize, buffer);
-  for (int c = 0; c < consnum; c++)
-    consumers[c] = std::thread(consumer, c, buffersize, buffer);
+  int prodLimit = prodnum-1;
+  for (int p = 0; p < prodLimit; p++)
+    producers[p] = std::thread(producer, p, buffersize, buffer, prodShare);
+  producers[prodLimit] = std::thread(producer, prodLimit, buffersize, buffer, prodLast);
+
+  int consLimit = consnum-1;
+  for (int c = 0; c < consLimit; c++)
+    consumers[c] = std::thread(consumer, c, buffersize, buffer, consShare);
+  consumers[consLimit] = std::thread(consumer, consLimit, buffersize, buffer, consLast);
 
   // Block main thread until all consumers finish
   for (int p = 0; p < prodnum; p++)
