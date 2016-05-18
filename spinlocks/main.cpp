@@ -20,11 +20,12 @@ void agg_accumulator(int agg) {
   lck.unlock();
 }
 
-void getValues(int tid, int init, int end, char vector[]){
-  for(int i = init; i < end; i++){
-    int value = (int)vector[i];
-    agg_accumulator(value);
+void getValues(int tid, long n, int NUM_THREADS, double acc[],char vector[]){
+  for(int i = tid; i < n; i+= NUM_THREADS){
+    double value = (int)vector[i];
+    acc[tid] += value;
   }
+  agg_accumulator(acc[tid]);
 }
 
 
@@ -47,37 +48,43 @@ int main (int argc, char const *argv[]) {
   //generating array of random values
 
   long long n = atol(argv[1]);
-  cout << n << endl;
-  char *vector = randomVector(n);
-  long test = 0;
-  for(long long i = 0; i < n; i++) {
-    test += (int)vector[i];
-  }
 
-  cout << "test : " << test << endl;
+
+  char *vector = randomVector(n);
+
+  cout << "end Fill" << endl;
+  //long test = 0;
+  //for(long long i = 0; i < n; i++) {
+  //  test += (int)vector[i];
+  //}
+  //cout << "test : " << test << endl;
+
 
   //Creating threads
   const int NUM_THREADS = atoi(argv[2]);
   thread t[NUM_THREADS];
-  //vector<thread> t;
+
   int reader = n / NUM_THREADS;
   int rest = n % NUM_THREADS;
   int initial = 0;
 
+  double *acc = new double[NUM_THREADS];
+  for( int  i = 0; i < NUM_THREADS; i ++) {
+    acc[i] = 0;
+  }
 
   for(int i = 0; i < NUM_THREADS ; i++) {
-    int end = initial + reader + ((rest-- <= 0) ? 0 : 1);
-    t[i] = thread(getValues, i, initial, end, vector);
-    initial = end;
+    t[i] = thread(getValues, i, n, NUM_THREADS, acc, vector);
   }
 
   for(int i = 0; i < NUM_THREADS; i++) {
     t[i].join();
   }
 
-  delete vector;
-
   cout << "accumulador : " << accumulator << endl;
+
+  delete [] vector;
+
 
   return 0;
 }
