@@ -15,19 +15,19 @@
 //#include <atomic>
 #include <random>
 #include <time.h>
-#include "semaphore.hpp"
+#include <semaphore.h>
 #include "../utility/isPrime.h"
  
-std::mutex mtx;             // mutex for buffer access
+sem_t mtx;             // mutex for buffer access
 #ifdef DEBUG
-  std::mutex c_mtx;
+  sem_t c_mtx;
 #endif
 #ifdef PRIME
-  std::mutex p_mtx;
+  sem_t p_mtx;
 #endif
 
-semaphore empty;            //
-semaphore full;
+sem_t empty;            //
+sem_t full;
 
 int productsConsumed = 0;
 const int limit = 10000;    //Number of products to be consumed by all consumers together
@@ -44,8 +44,9 @@ void producer(int pid, int buffersize, int *buffer) {
 
   #ifdef DEBUG
     {
-      std::unique_lock<std::mutex> ulock(c_mtx);
+      sem_wait(&c_mtx);
       std::cout<<"\nProducer "<<pid<<" has awaken!"<<"\n";
+      sem_post(&c_mtx);
     }
   #endif
 
@@ -53,60 +54,59 @@ void producer(int pid, int buffersize, int *buffer) {
 
   while (produce) {
     product = dis(gen);
-    if(empty.waitOrShutdown())
-    {
-      #ifdef DEBUG
-        {
-          std::unique_lock<std::mutex> ulock(c_mtx);
-          std::cout<<"\nNo need for producers. Producer ";
-          std::cout<<pid<<" exiting..."<<"\n";
-        }
-      #endif
-      return;
-    }
+    sem_wait(&empty);
     produce = addProduct(pid, product, buffersize, buffer);
-    full.signal();
+    sem_post(&full);
   }
+
+  #ifdef DEBUG
+    {
+      sem_wait(&c_mtx);
+      std::cout<<"Producer "<<pid<<" exiting..."<<"\n";
+      sem_post(&c_mtx);
+    }
+  #endif
 
 }
 
 inline bool addProduct (int &pid, int product, int &buffersize, int *buffer) {
-  std::unique_lock<std::mutex> ulock(mtx);
-  
+  sem_wait(&mtx);  
   if (productsConsumed >= limit)
   {
-    if (empty.isShutdown() || full.isShutdown())
-    {
-      return false;
-    }
     #ifdef DEBUG
-      {
-        std::unique_lock<std::mutex> ulock(c_mtx);
-        std::cout<<"Producer"<<pid<<" is shutting down!";
-        std::cout<<"\n";
-      }
+    {
+      sem_wait(&c_mtx);
+      std::cout<<"Producer"<<pid<<" is shutting down!";
+      std::cout<<"\n";
+      sem_post(&c_mtx);
+    }
     #endif
-    empty.doShutdown();
-    full.doShutdown();
+    sem_post(&mtx);
+    sem_post(&empty);
     return false;
   }
-
   for (int i = 0; i < buffersize; ++i)
   {
     if (buffer[i] == 0)
     {
       #ifdef DEBUG
         {
-          std::unique_lock<std::mutex> ulock(c_mtx);
+          sem_wait(&c_mtx);
           std::cout<<pid<<" is adding product! "<<i<<" = ";
           std::cout<<product;
           std::cout<<"\n";
+          sem_post(&c_mtx);
         }
       #endif
       buffer[i] = product;
+      sem_post(&mtx);
       return true;
     }
   }
+  //The function should never reach here, but if it does...
+  sem_post(&mtx);
+  sem_post(&empty);
+  return false;
 }
 
 inline bool removeProduct (int &cid, int &product, int &buffersize, int *buffer);
@@ -114,8 +114,9 @@ inline bool removeProduct (int &cid, int &product, int &buffersize, int *buffer)
 void consumer(int cid, int buffersize, int *buffer) {
   #ifdef DEBUG
     {
-      std::unique_lock<std::mutex> ulock(c_mtx);
+      sem_wait(&c_mtx);
       std::cout<<"\nConsumer "<<cid<<" has awaken!"<<"\n";
+      sem_post(&c_mtx);
     }
   #endif
   int product = 0;
@@ -123,58 +124,54 @@ void consumer(int cid, int buffersize, int *buffer) {
   
   while(hasRemoved)
   {
-    if(full.waitOrShutdown())
-    {
-      #ifdef DEBUG
-        {
-          std::unique_lock<std::mutex> ulock(c_mtx);
-          std::cout<<"Consumer "<<cid<<" finished its job of consuming his share of ";
-          std::cout<<limit<<" products. Exiting..."<<"\n";
-        }
-      #endif
-      return;
-    }
+    sem_wait(&full);
     hasRemoved = removeProduct(cid, product, buffersize, buffer);
-    empty.signal();
-
+    sem_post(&empty);
     if (hasRemoved)
     {
       #ifdef PRIME
         if (isPrime(product))
         {
-          std::unique_lock<std::mutex> ulock(p_mtx);
+          sem_wait(&p_mtx);
           std::cout<<product<<" is prime"<<"\n";//processProduct(product);
+          sem_post(&p_mtx);
         }
         else
         {
-          std::unique_lock<std::mutex> ulock(p_mtx);
+          sem_wait(&p_mtx);
           std::cout<<product<<" is NOT prime"<<"\n";
+          sem_post(&p_mtx);
         }
       #else
         isPrime(product);
       #endif
     }
-
   }
+
+  #ifdef DEBUG
+    {
+      sem_wait(&c_mtx);
+      std::cout<<"Consumer "<<cid<<" finished its job of consuming his share of ";
+      std::cout<<limit<<" products. Exiting..."<<"\n";
+      sem_post(&c_mtx);
+    }
+  #endif
 }
 
 inline bool removeProduct (int &cid, int &product, int &buffersize, int *buffer) {
-  std::unique_lock<std::mutex> ulock(mtx);
+  sem_wait(&mtx);
   if (productsConsumed >= limit)
   {
-    if (empty.isShutdown() || full.isShutdown())
-    {
-      return false;
-    }
     #ifdef DEBUG
       {
-        std::unique_lock<std::mutex> ulock(c_mtx);
+        sem_wait(&c_mtx);
         std::cout<<"Consumer"<<cid<<" is shutting down!";
         std::cout<<"\n";
+        sem_post(&c_mtx);
       }
     #endif
-    empty.doShutdown();
-    full.doShutdown();
+    sem_post(&mtx);
+    sem_post(&full);
     return false;
   }
 
@@ -185,15 +182,20 @@ inline bool removeProduct (int &cid, int &product, int &buffersize, int *buffer)
       product = buffer[i];
       buffer[i] = 0;
       productsConsumed++;
+      sem_post(&mtx);
       return true;
     }
   }
+  //The function should never reach here, but if it does...
   #ifdef DEBUG
     {
-      std::unique_lock<std::mutex> ulock(c_mtx);
+      sem_wait(&c_mtx);
       std::cout<<"Did not find any product!"<<"\n";
+      sem_post(&c_mtx);
     }
   #endif
+  sem_post(&mtx);
+  sem_post(&full);
   return false;
 }
  
@@ -233,7 +235,15 @@ int main (int argc, char const *argv[]){
   std::thread *consumers = new std::thread[consnum];
 
   //Mark all buffer positions as empty;
-  empty.setCounter(buffersize);
+  sem_init(&mtx,0,1);
+  sem_init(&full,0,0);
+  sem_init(&empty,0,buffersize);
+  #ifdef PRIME
+    sem_init(&p_mtx,0,1);
+  #endif
+  #ifdef DEBUG
+    sem_init(&c_mtx,0,1);
+  #endif
 
   for (int i = 0; i < buffersize; ++i)
   {
@@ -254,10 +264,13 @@ int main (int argc, char const *argv[]){
 
   {
     #ifdef DEBUG
-      std::unique_lock<std::mutex> ulock(c_mtx);
+      sem_wait(&c_mtx);
     #endif
     std::cout << "\nCompleted produce consumer example!\n";
     std::cout << std::endl;
+    #ifdef DEBUG
+      sem_post(&c_mtx);
+    #endif
   }
 
   return 0;

@@ -10,26 +10,41 @@
 #include <iostream>
 #include <sstream>      
 #include <thread>        
-#include <mutex>         
 #include <condition_variable>
 //#include <atomic>
 #include <random>
 #include <time.h>
-#include "semaphore.h"
 #include "../utility/isPrime.h"
+
+#include <mutex>         
+
+#ifdef MYSEMAPHORE
+  #include "semaphore.hpp"
+#else
+  #include <semaphore.h>
+#endif
  
-std::mutex mtx;             // mutex for buffer access
 #ifdef DEBUG
   std::mutex c_mtx;
 #endif
 #ifdef PRIME
-  std::mutex p_mtx;
+  #ifdef MYSEMAPHORE
+    std::mutex p_mtx;
+  #else
+    sem_t p_mtx;
+  #endif
 #endif
-bool ready = false;         // Tell threads to run
-bool produce = true;        // Producers try to produce while true
-semaphore empty;            //
-semaphore full;
-std::atomic_uint a_consumerCounter;
+
+#ifdef MYSEMAPHORE
+  std::mutex mtx;             // mutex for buffer access
+  semaphore empty;            //
+  semaphore full;
+#else
+  sem_t mtx;
+  sem_t empty;
+  sem_t full;
+#endif
+
 int productsConsumed = 0;
 const int limit = 10000;    //Number of products to be consumed by all consumers together
 
@@ -37,10 +52,10 @@ inline void addProduct (int &pid, int product, int &buffersize, int *buffer);
 
 void producer(int pid, int buffersize, int *buffer, int amount) {
   
-  //std::random_device r;
-  //std::seed_seq seed{r(),r(),r(),r(),r(),r(),r(),r()};
-  //std::mt19937 gen(seed);
-  //std::uniform_int_distribution<int> dis(LOWER, UPPER);
+  std::random_device r;
+  std::seed_seq seed{r(),r(),r(),r(),r(),r(),r(),r()};
+  std::mt19937 gen(seed);
+  std::uniform_int_distribution<int> dis(LOWER, UPPER);
 
   #ifdef DEBUG
     {
@@ -54,10 +69,22 @@ void producer(int pid, int buffersize, int *buffer, int amount) {
 
   for(int i = 0; i < amount; i++)
   {
-    product = 13;//dis(gen);
-    empty.wait();
+    product = dis(gen);
+
+    #ifdef MYSEMAPHORE
+      empty.wait();
+    #else
+      sem_wait(&empty);
+    #endif
+
     addProduct(pid, product, buffersize, buffer);
-    full.signal();
+
+    #ifdef MYSEMAPHORE
+      full.signal();
+    #else
+      sem_post(&full);
+    #endif
+
   }
 
   #ifdef DEBUG
@@ -71,7 +98,11 @@ void producer(int pid, int buffersize, int *buffer, int amount) {
 }
 
 inline void addProduct (int &pid, int product, int &buffersize, int *buffer) {
-  std::unique_lock<std::mutex> ulock(mtx);
+  #ifdef MYSEMAPHORE
+    std::unique_lock<std::mutex> ulock(mtx);
+  #else
+    sem_wait(&mtx);
+  #endif
 
   for (int i = 0; i < buffersize; ++i)
   {
@@ -85,7 +116,14 @@ inline void addProduct (int &pid, int product, int &buffersize, int *buffer) {
           std::cout<<"\n";
         }
       #endif
+      
       buffer[i] = product;
+
+      #ifdef MYSEMAPHORE
+
+      #else
+        sem_post(&mtx);
+      #endif
       return;
     }
   }
@@ -105,36 +143,80 @@ void consumer(int cid, int buffersize, int *buffer, int amount) {
   
   for(int i = 0; i < amount; i++)
   {
-    full.wait();
+    #ifdef MYSEMAPHORE
+      full.wait();
+    #else
+      sem_wait(&full);
+    #endif
+
     removeProduct(cid, product, buffersize, buffer);
-    empty.signal();
+
+    #ifdef MYSEMAPHORE
+      empty.signal();
+    #else
+      sem_post(&empty);
+    #endif
 
     #ifdef PRIME
-      if (isPrime(product))
-      {
-        std::unique_lock<std::mutex> ulock(p_mtx);
-        std::cout<<product<<" is prime"<<"\n";//processProduct(product);
-      }
-      else
-      {
-        std::unique_lock<std::mutex> ulock(p_mtx);
-        std::cout<<product<<" is NOT prime"<<"\n";
-      }
+      #ifdef MYSEMAPHORE
+        if (isPrime(product))
+        {
+          std::unique_lock<std::mutex> ulock(p_mtx);
+          std::cout<<product<<" is prime"<<"\n";//processProduct(product);
+        }
+        else
+        {
+          std::unique_lock<std::mutex> ulock(p_mtx);
+          std::cout<<product<<" is NOT prime"<<"\n";
+        }
+      #else
+        if (isPrime(product))
+        {
+          sem_wait(&p_mtx);
+          std::cout<<product<<" is prime"<<"\n";//processProduct(product);
+          sem_post(&p_mtx);
+        }
+        else
+        {
+          sem_wait(&p_mtx);
+          std::cout<<product<<" is NOT prime"<<"\n";
+          sem_post(&p_mtx);
+        }
+      #endif
     #else
       isPrime(product);
     #endif
 
   }
+
+  #ifdef DEBUG
+    {
+      std::unique_lock<std::mutex> ulock(c_mtx);
+      std::cout<<"\nConsumer "<<cid<<" will exit!"<<"\n";
+    }
+  #endif
 }
 
 inline void removeProduct (int &cid, int &product, int &buffersize, int *buffer) {
-  std::unique_lock<std::mutex> ulock(mtx);
+  #ifdef MYSEMAPHORE
+    std::unique_lock<std::mutex> ulock(mtx);
+  #else
+    sem_wait(&mtx);
+  #endif
+
   for (int i = 0; i < buffersize; ++i)
   {
     if (buffer[i] != 0)
     {
       product = buffer[i];
       buffer[i] = 0;
+
+      #ifdef MYSEMAPHORE
+
+      #else
+        sem_post(&mtx);
+      #endif
+
       return;
     }
   }
@@ -144,6 +226,13 @@ inline void removeProduct (int &cid, int &product, int &buffersize, int *buffer)
       std::cout<<"Did not find any product!"<<"\n";
     }
   #endif
+
+  #ifdef MYSEMAPHORE
+
+  #else
+    sem_post(&mtx);
+  #endif
+
   return;
 }
  
@@ -191,8 +280,16 @@ int main (int argc, char const *argv[]){
   int consLast = limit - consShare*(consnum-1);
 
   //Mark all buffer positions as empty;
-  empty.setCounter(buffersize);
-  a_consumerCounter.exchange(consnum);
+  #ifdef MYSEMAPHORE
+    empty.setCounter(buffersize);
+  #else
+    sem_init(&mtx,0,1);
+    sem_init(&full,0,0);
+    sem_init(&empty,0,buffersize);
+    #ifdef PRIME
+      sem_init(&p_mtx,0,1);
+    #endif
+  #endif
 
   for (int i = 0; i < buffersize; ++i)
   {
