@@ -24,17 +24,13 @@ void agg_accumulator(int agg) {
 
 //void getValues(int tid, long n, int NUM_THREADS, double acc[],char vector[]){
 void getValues(int tid, long n, int NUM_THREADS, char vector[]){
-  //cout<<"Thread "<<tid<<" has awaken!"<<std::endl;
-  long long acc = 0;
 
   for(int i = tid; i < n; i+= NUM_THREADS){
     //double value = (int)vector[i];
     //acc[tid] += value;
-    acc += (int)vector[i];
+    agg_accumulator((int)vector[i]);
   }
-  //agg_accumulator(acc[tid]);
-  agg_accumulator(acc);
-  //cout<<"Thread "<<tid<<" has finished!"<<std::endl;
+  
 }
 
 
